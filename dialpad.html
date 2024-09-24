@@ -288,21 +288,8 @@
             text-align: center;
         }
 
-        /* Additional styles for the interested popup */
-        .popup-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .popup-card-2 {
+        /* New styles for the lifted/not lifted popup */
+        .popup-card-lifted {
             background-color: var(--surface-color);
             border-radius: 20px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
@@ -313,13 +300,12 @@
             animation: popIn 0.3s ease-out;
         }
 
-        .popup-buttons-2 {
+        .popup-buttons-lifted {
             display: flex;
-            flex-direction: column;
-            gap: 10px;
+            justify-content: space-around;
         }
 
-        .popup-button-2 {
+        .popup-button-lifted {
             padding: 12px 24px;
             border: none;
             border-radius: 30px;
@@ -329,26 +315,22 @@
             transition: none;
         }
 
-        .lift-button {
+        .lifted-button {
             background-color: #4CAF50;
             color: white;
         }
 
-        .not-lift-button {
+        .not-lifted-button {
             background-color: #f44336;
             color: white;
         }
 
-        .not-interested-button {
-            display: none;
-        }
-
-        .popup-button-2:hover {
+        .popup-button-lifted:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
-        .popup-button-2:active {
+        .popup-button-lifted:active {
             transform: translateY(0);
         }
     </style>
@@ -406,13 +388,13 @@
         </div>
     </div>
 
-    <!-- New popup overlay and card for interested status -->
-    <div class="popup-overlay" id="popupOverlayInterested">
-        <div class="popup-card-2">
-            <div class="popup-title">Call Status</div>
-            <div class="popup-buttons-2">
-                <button class="popup-button-2 lift-button" id="liftButton">Lift</button>
-                <button class="popup-button-2 not-lift-button" id="notLiftButton">Not Lift</button>
+    <!-- New popup overlay and card for lifted/not lifted -->
+    <div class="popup-overlay" id="popupOverlayLifted">
+        <div class="popup-card-lifted">
+            <div class="popup-title">Was The Call Lifted?</div>
+            <div class="popup-buttons-lifted">
+                <button class="popup-button-lifted lifted-button" id="liftedButton">Lifted</button>
+                <button class="popup-button-lifted not-lifted-button" id="notLiftedButton">Not Lifted</button>
             </div>
         </div>
     </div>
@@ -490,41 +472,9 @@
         }
 
         callButton.addEventListener('click', () => {
-            console.log('Call button clicked');
             if (phoneNumber.length === 10) {
-                console.log('Dialing number:', phoneNumber);
-                // Dial the number
-                window.location.href = `tel:${phoneNumber}`;
-                
-                // Start the call timer
-                callStartTime = new Date();
-
-                // Check if the number is already marked as Interested after a delay
-                setTimeout(() => {
-                    database.ref('calls').orderByChild('number').equalTo(phoneNumber).once('value', snapshot => {
-                        let isInterested = false;
-
-                        snapshot.forEach(childSnapshot => {
-                            const call = childSnapshot.val();
-                            if (call.status === 'Interested') {
-                                isInterested = true;
-                                return true; // Break the loop
-                            }
-                        });
-
-                        if (isInterested) {
-                            // Show the new popup card after a delay
-                            setTimeout(() => {
-                                document.getElementById('popupOverlayInterested').style.display = 'flex';
-                            }, 5000);
-                        } else {
-                            // Show the original popup after a delay if the number is not marked as Interested
-                            setTimeout(() => {
-                                document.getElementById('popupOverlay').style.display = 'flex';
-                            }, 5000);
-                        }
-                    });
-                }, 1000); // Adjust the delay as needed
+                callStartTime = new Date(); // Ensure callStartTime is set correctly
+                checkInterestedOrCallbackStatus(phoneNumber);
             } else {
                 showErrorPopup();
             }
@@ -544,9 +494,6 @@
             }
             callEndTime = new Date();
             const durationInSeconds = Math.round((callEndTime - callStartTime) / 1000);
-            if (isNaN(durationInSeconds)) {
-                return 'N/A';
-            }
             if (durationInSeconds < 60) {
                 return `${durationInSeconds} sec`;
             } else {
@@ -556,84 +503,14 @@
             }
         }
 
-        function checkAndUpdateExistingCall(number, status, notes, duration) {
-            console.log('Checking for existing call:', number);
-            
-            database.ref('calls').orderByChild('number').equalTo(number).once('value', snapshot => {
-                let existingCall = null;
-                let existingCallType = null;
-
-                snapshot.forEach(childSnapshot => {
-                    const call = childSnapshot.val();
-                    if (call.status === 'Callback' || call.status === 'Unanswered' || call.status === 'Interested') {
-                        existingCall = { key: childSnapshot.key, ...call };
-                        existingCallType = call.status;
-                        return true; // Break the loop
-                    }
-                });
-
-                if (existingCall) {
-                    console.log(`Found ${existingCallType} call:`, existingCall);
-                    // Prepare updates
-                    const updates = {
-                        notes: notes,
-                        duration: duration,
-                        dateTime: getCurrentDateTime(),
-                        timestamp: firebase.database.ServerValue.TIMESTAMP
-                    };
-
-                    // Update the call status in the notes
-                    updates.status = status;
-
-                    database.ref(`calls/${existingCall.key}`).update(updates)
-                        .then(() => {
-                            console.log(`${existingCallType} call updated successfully`);
-                            notifyParentWindow({ 
-                                type: 'callUpdated', 
-                                call: { ...existingCall, ...updates },
-                                previousStatus: existingCallType
-                            });
-                            resetDialpad();
-                        })
-                        .catch(error => {
-                            console.error(`Error updating ${existingCallType} call:`, error);
-                            alert('Failed to update call data. Please try again.');
-                        });
-
-                    // If the existing call is Interested, keep the number under Interested call details
-                    if (existingCallType === 'Interested') {
-                        // Update the call status in the notes
-                        updates.status = 'Interested';
-                        database.ref(`calls/${existingCall.key}`).update(updates)
-                            .then(() => {
-                                console.log(`Interested call updated successfully with new status: ${status}`);
-                                notifyParentWindow({ 
-                                    type: 'callUpdated', 
-                                    call: { ...existingCall, ...updates },
-                                    previousStatus: existingCallType
-                                });
-                                resetDialpad();
-                            })
-                            .catch(error => {
-                                console.error(`Error updating Interested call:`, error);
-                                alert('Failed to update call data. Please try again.');
-                            });
-                    }
-                } else {
-                    // If no existing call found, record as a new call
-                    recordCallData(number, status, notes, duration);
-                }
-            });
-        }
-
-        // Update the function calls to use the new function name
         function handleCallAnswer(wasAnswered) {
             const duration = wasAnswered ? calculateDuration() : 'N/A';
             if (wasAnswered) {
                 document.getElementById('popupOverlay').style.display = 'none';
                 document.getElementById('popupOverlay2').style.display = 'flex';
             } else {
-                checkAndUpdateExistingCall(phoneNumber, 'Unanswered', 'Call was not answered', duration);
+                // For unanswered calls, record them immediately
+                checkAndUpdateUnansweredOrCallbackCall(phoneNumber, 'Unanswered', 'Call was not answered', duration);
                 document.getElementById('popupOverlay').style.display = 'none';
             }
         }
@@ -642,9 +519,51 @@
             console.log('handleCallStatus called with status:', status);
             const notes = status; // Use the status as notes
             const duration = calculateDuration();
-            checkAndUpdateExistingCall(phoneNumber, status, notes, duration);
+            checkAndUpdateUnansweredOrCallbackCall(phoneNumber, status, notes, duration);
+            // Close the popup immediately
             document.getElementById('popupOverlay2').style.display = 'none';
-            document.getElementById('popupOverlayInterested').style.display = 'none'; // Ensure this overlay is hidden
+        }
+
+        function checkAndUpdateUnansweredOrCallbackCall(number, status, notes, duration) {
+            console.log('Checking for unanswered or callback call:', number);
+            
+            // First, check if this number exists in unanswered or callback calls
+            database.ref('calls').orderByChild('number').equalTo(number).once('value', snapshot => {
+                let existingCall = null;
+                snapshot.forEach(childSnapshot => {
+                    const call = childSnapshot.val();
+                    if (call.status === 'Unanswered' || call.status === 'Callback') {
+                        existingCall = { key: childSnapshot.key, ...call };
+                        return true; // Break the loop
+                    }
+                });
+
+                if (existingCall) {
+                    console.log('Found existing call:', existingCall);
+                    // Update the existing call
+                    const updates = {
+                        status: status,
+                        notes: notes,
+                        duration: duration,
+                        dateTime: getCurrentDateTime(),
+                        timestamp: firebase.database.ServerValue.TIMESTAMP
+                    };
+
+                    database.ref(`calls/${existingCall.key}`).update(updates)
+                        .then(() => {
+                            console.log('Existing call updated successfully');
+                            notifyParentWindow({ type: 'callUpdated', call: { ...existingCall, ...updates } });
+                            resetDialpad();
+                        })
+                        .catch(error => {
+                            console.error('Error updating existing call:', error);
+                            alert('Failed to update call data. Please try again.');
+                        });
+                } else {
+                    // If no existing call found, record as a new call
+                    recordCallData(number, status, notes, duration);
+                }
+            });
         }
 
         function recordCallData(number, status, notes, duration) {
@@ -720,15 +639,12 @@
                 handleCallStatus('Callback');
             });
 
-            document.getElementById('liftButton').addEventListener('click', function() {
-                console.log('Lift button clicked');
-                handleCallStatus('Interested'); // Update status to Interested
-                document.getElementById('popupOverlayInterested').style.display = 'none';
+            document.getElementById('liftedButton').addEventListener('click', function() {
+                handleLiftedStatus(true);
             });
 
-            document.getElementById('notLiftButton').addEventListener('click', function() {
-                console.log('Not Lift button clicked');
-                document.getElementById('popupOverlayInterested').style.display = 'none';
+            document.getElementById('notLiftedButton').addEventListener('click', function() {
+                handleLiftedStatus(false);
             });
         });
 
@@ -738,6 +654,70 @@
             const ampm = hours >= 12 ? 'PM' : 'AM';
             const formattedHours = (hours % 12 || 12).toString();
             return `${formattedHours}:${minutes}${ampm}`;
+        }
+
+        function checkInterestedOrCallbackStatus(number) {
+            database.ref('calls').orderByChild('number').equalTo(number).once('value', snapshot => {
+                let interestedCall = null;
+                let callbackCall = null;
+                snapshot.forEach(childSnapshot => {
+                    const call = childSnapshot.val();
+                    if (call.status === 'Interested') {
+                        interestedCall = { key: childSnapshot.key, ...call };
+                    } else if (call.status === 'Callback') {
+                        callbackCall = { key: childSnapshot.key, ...call };
+                    }
+                });
+
+                if (interestedCall) {
+                    document.getElementById('popupOverlayLifted').style.display = 'flex';
+                } else if (callbackCall) {
+                    // Show the "Was The Call Answered?" popup
+                    document.getElementById('popupOverlay').style.display = 'flex';
+                } else {
+                    window.location.href = `tel:${phoneNumber}`;
+                    callStartTime = new Date();
+                    setTimeout(() => {
+                        document.getElementById('popupOverlay').style.display = 'flex';
+                    }, 5000);
+                }
+            });
+        }
+
+        function handleLiftedStatus(lifted) {
+            if (lifted) {
+                const duration = calculateDuration();
+                updateInterestedCall(phoneNumber, 'Interested', 'Call was lifted', duration);
+            }
+            document.getElementById('popupOverlayLifted').style.display = 'none';
+        }
+
+        function updateInterestedCall(number, status, notes, duration) {
+            database.ref('calls').orderByChild('number').equalTo(number).once('value', snapshot => {
+                snapshot.forEach(childSnapshot => {
+                    const call = childSnapshot.val();
+                    if (call.status === 'Interested') {
+                        const updates = {
+                            status: status,
+                            notes: notes,
+                            duration: duration,
+                            dateTime: getCurrentDateTime(),
+                            timestamp: firebase.database.ServerValue.TIMESTAMP
+                        };
+
+                        database.ref(`calls/${childSnapshot.key}`).update(updates)
+                            .then(() => {
+                                console.log('Interested call updated successfully');
+                                notifyParentWindow({ type: 'callUpdated', call: { ...call, ...updates } });
+                                resetDialpad();
+                            })
+                            .catch(error => {
+                                console.error('Error updating interested call:', error);
+                                alert('Failed to update call data. Please try again.');
+                            });
+                    }
+                });
+            });
         }
     </script>
 </body>
